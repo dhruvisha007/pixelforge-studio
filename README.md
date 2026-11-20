@@ -42,7 +42,7 @@ PIXELFORGE_WEBHOOK_SECRET=whsec_...
 - skip webhooks entirely. The scheduler polls any generation it hasn't heard about for 45 seconds,
   so everything still finishes, just a little later.
 
-**Tests:** `php artisan test` (68 tests, no network: Pixelforge is faked with the exact shapes from its docs).
+**Tests:** `php artisan test` (69 tests, run on SQLite and Postgres in CI, no network: Pixelforge is faked with the exact shapes from its docs).
 
 **Manual testing:** put Pixelforge's keywords in a prompt.
 
@@ -76,7 +76,9 @@ Pixelforge ──webhook──▶ POST /webhooks/pixelforge
    • store the event once (unique event id), reply 204, process it in a queued job
    • ProcessPixelforgeEvent ──▶ GenerationUpdater
 
-generations:sync (scheduler, every 15 s)
+PixelforgePoller (the webhook fallback)
+   • runs from the scheduler every 15 s (generations:sync), and from the studio page
+     every 30 s while someone watches images in progress (CatchUpWithPixelforge)
    • polls generations with no news for 45 s ──▶ GenerationUpdater
    • fails anything stuck in "pending" for 20 minutes (lost job, never sent, free)
 
@@ -169,6 +171,14 @@ browser, so there is one source of truth.
   gets it and is charged, and our books still match Pixelforge's. That one case can push a
   balance slightly negative. I chose that over silently losing money.
 
+### Polling without an always-on scheduler
+
+A scheduler that runs every 15 seconds keeps the app and its database awake around the clock,
+which costs money on a host that bills by the second. So the studio page also triggers the
+catch-up: while it is showing images in progress it reloads every 2 seconds, and at most once
+every 30 seconds (an atomic `Cache::add`) that queues `CatchUpWithPixelforge`. Webhooks still do
+the real work; this only rescues the rare one that never arrives.
+
 ### Images
 
 Pixelforge's signed URLs expire 24 hours after completion, so `StoreGenerationImage` copies each
@@ -194,7 +204,10 @@ copy, the card says so.
 2. Add a **Postgres** database. Cloud sets the `DB_*` variables.
 3. Add an **object storage bucket** for images, then set `GENERATION_IMAGE_DISK` to its disk
    name (for example `s3`). The app server's own disk is not kept between deploys.
-4. Turn on a **queue worker** (`php artisan queue:work`) and the **scheduler**.
+4. Add a **background process** for the queue worker: `php artisan queue:work --tries=3`.
+   The **scheduler** is optional. It keeps the app awake around the clock, so the free
+   setup leaves it off and keeps **scale to zero** on. Lost webhooks are then caught by
+   the studio page instead (see PixelforgePoller).
 5. Environment: `APP_URL`, `PIXELFORGE_API_KEY` and `PIXELFORGE_WEBHOOK_SECRET`. Use a
    *separate* Pixelforge key from your local one.
 6. Deploy commands: `php artisan migrate --force`.

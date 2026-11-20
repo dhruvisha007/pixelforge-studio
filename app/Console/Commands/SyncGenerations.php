@@ -2,16 +2,13 @@
 
 namespace App\Console\Commands;
 
-use App\Enums\GenerationStatus;
-use App\Generations\GenerationUpdater;
-use App\Models\Generation;
-use App\Pixelforge\PixelforgeClient;
-use App\Pixelforge\PixelforgeException;
+use App\Generations\PixelforgePoller;
 use Illuminate\Console\Command;
 
 /**
- * Webhook delivery is not guaranteed, so we poll any generation Pixelforge has not
- * told us about for a while. Also works without webhooks at all (local development).
+ * Webhook delivery is not guaranteed, so the scheduler runs this every 15 seconds
+ * to poll any generation Pixelforge has not told us about for a while. Also works
+ * without webhooks at all (local development).
  */
 class SyncGenerations extends Command
 {
@@ -19,50 +16,13 @@ class SyncGenerations extends Command
 
     protected $description = 'Poll Pixelforge for generations whose webhooks are late or missing';
 
-    public function handle(PixelforgeClient $pixelforge, GenerationUpdater $updater): int
+    public function handle(PixelforgePoller $poller): int
     {
-        $stale = Generation::query()
-            ->whereIn('status', [GenerationStatus::Queued, GenerationStatus::Processing])
-            ->whereNotNull('pixelforge_id')
-            ->where('last_synced_at', '<', now()->subSeconds(config('pixelforge.poll_after_seconds')))
-            ->orderBy('last_synced_at')
-            ->limit((int) $this->option('limit'))
-            ->get();
+        $polled = $poller->pollStale((int) $this->option('limit'));
+        $failed = $poller->failLostSubmissions();
 
-        foreach ($stale as $generation) {
-            try {
-                $updater->applyPixelforgeState($generation, $pixelforge->generation($generation->pixelforge_id));
-            } catch (PixelforgeException $e) {
-                if ($e->isTemporary()) {
-                    $this->warn("Pixelforge is busy ({$e->errorCode}); trying again next run.");
-                    break;
-                }
-
-                report($e);
-            }
-        }
-
-        $this->failLostSubmissions($updater);
-
-        $this->info("Polled {$stale->count()} generation(s).");
+        $this->info("Polled {$polled} generation(s), failed {$failed} lost submission(s).");
 
         return self::SUCCESS;
-    }
-
-    /**
-     * The submit job gives up after 10 minutes. Anything still pending well after
-     * that lost its job (e.g. a crashed worker). Pixelforge never confirmed it, so
-     * nothing was billed.
-     */
-    private function failLostSubmissions(GenerationUpdater $updater): void
-    {
-        Generation::query()
-            ->where('status', GenerationStatus::Pending)
-            ->where('created_at', '<', now()->subMinutes(20))
-            ->each(fn (Generation $generation) => $updater->failBeforeAccepted(
-                $generation,
-                'submission_lost',
-                'We could not send this to Pixelforge. Please try again.',
-            ));
     }
 }

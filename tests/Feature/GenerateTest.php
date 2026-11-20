@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Enums\CreditTransactionType;
 use App\Enums\GenerationStatus;
+use App\Jobs\CatchUpWithPixelforge;
 use App\Jobs\SubmitGeneration;
 use App\Models\Generation;
 use App\Models\User;
@@ -49,6 +50,23 @@ class GenerateTest extends TestCase
         Generation::factory()->for($user)->create();
 
         $this->actingAs($user)->get('/studio')->assertOk();
+    }
+
+    #[Test]
+    public function watching_images_in_progress_catches_up_with_pixelforge_at_most_every_30_seconds(): void
+    {
+        $user = User::factory()->create();
+        $this->actingAs($user)->get('/studio')->assertOk();
+        Queue::assertNotPushed(CatchUpWithPixelforge::class); // nothing in progress
+
+        Generation::factory()->for($user)->processing()->create();
+        $this->actingAs($user)->get('/studio')->assertOk();
+        $this->actingAs($user)->get('/studio')->assertOk();
+        Queue::assertPushed(CatchUpWithPixelforge::class, 1);
+
+        $this->travel(31)->seconds();
+        $this->actingAs($user)->get('/studio')->assertOk();
+        Queue::assertPushed(CatchUpWithPixelforge::class, 2);
     }
 
     #[Test]

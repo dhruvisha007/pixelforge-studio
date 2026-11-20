@@ -7,6 +7,7 @@ use App\Billing\CostEstimate;
 use App\Enums\GenerationStatus;
 use App\Http\Requests\GenerationRequest;
 use App\Http\Resources\GenerationResource;
+use App\Jobs\CatchUpWithPixelforge;
 use App\Jobs\SubmitGeneration;
 use App\Models\Generation;
 use App\Models\User;
@@ -18,6 +19,7 @@ use Brick\Math\RoundingMode;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
@@ -35,6 +37,13 @@ class GenerationController
     /** The studio: the generate form and the user's history. */
     public function index(Request $request): Response
     {
+        // The page reloads itself every 2 s while images are in progress. Use that to
+        // catch up on late or lost webhooks without an always-on scheduler, at most
+        // once every 30 s however many people are watching.
+        if ($request->user()->generations()->inProgress()->exists() && Cache::add('pixelforge:catch-up', true, 30)) {
+            CatchUpWithPixelforge::dispatch();
+        }
+
         return Inertia::render('Studio', [
             'generations' => GenerationResource::collection(
                 $request->user()->generations()->latest('id')->paginate(12)
