@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Support\Str;
 
 /**
  * @property GenerationStatus $status
@@ -76,7 +77,7 @@ class Generation extends Model
     {
         $uuid = $object['metadata']['generation_uuid'] ?? null;
 
-        if (is_string($uuid) && $uuid !== '') {
+        if (is_string($uuid) && Str::isUuid($uuid)) {
             return self::query()->where('uuid', $uuid)->first();
         }
 

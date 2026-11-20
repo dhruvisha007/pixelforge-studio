@@ -13,6 +13,28 @@ on:
 jobs:
   ci:
     runs-on: ubuntu-latest
+    name: tests (${{ matrix.database }})
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # SQLite is what runs locally; production runs on Postgres.
+        database: [sqlite, pgsql]
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: testing
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
 
     steps:
       - name: Checkout
@@ -23,7 +45,8 @@ jobs:
         with:
           php-version: 8.4
           tools: composer:v2
-          coverage: xdebug
+          extensions: pdo_sqlite, pdo_pgsql
+          coverage: none
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -53,4 +76,9 @@ jobs:
         run: npm run build
 
       - name: Tests
-        run: ./vendor/bin/phpunit
+        run: |
+          # phpunit.xml defaults to in-memory SQLite; these env vars take precedence.
+          if [ "${{ matrix.database }}" = "pgsql" ]; then
+            export DB_CONNECTION=pgsql DB_HOST=127.0.0.1 DB_PORT=5432 DB_DATABASE=testing DB_USERNAME=postgres DB_PASSWORD=postgres
+          fi
+          ./vendor/bin/phpunit

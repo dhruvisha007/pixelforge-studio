@@ -17,6 +17,10 @@ return Application::configure(basePath: dirname(__DIR__))
         },
     )
     ->withMiddleware(function (Middleware $middleware) {
+        // Laravel Cloud (and most hosts) end HTTPS at a load balancer. Trusting it makes
+        // Laravel see the real https scheme, so generated URLs and assets use https.
+        $middleware->trustProxies(at: '*');
+
         $middleware->web(append: [
             HandleInertiaRequests::class,
             AddLinkHeadersForPreloadedAssets::class,

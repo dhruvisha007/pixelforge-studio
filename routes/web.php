@@ -19,6 +19,7 @@ Route::middleware('auth')->group(function () {
         ->middleware('throttle:240,1')
         ->name('generations.estimate');
     Route::get('generations/{generation}/image', [GenerationController::class, 'image'])
+        ->whereUuid('generation') // Postgres errors on a uuid column compared with a non-uuid string.
         ->name('generations.image');
 
     Route::get('credits', [CreditsController::class, 'index'])->name('credits');
