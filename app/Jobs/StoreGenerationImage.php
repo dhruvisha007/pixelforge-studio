@@ -43,7 +43,11 @@ class StoreGenerationImage implements ShouldQueue
         }
 
         $path = "generations/{$generation->uuid}.png";
-        Storage::disk(config('studio.image_disk'))->put($path, $response->body());
+        // Cloud buckets are configured not to throw, so check the result: a failed upload
+        // must not be recorded as stored (the job retries instead).
+        if (! Storage::disk(config('studio.image_disk'))->put($path, $response->body())) {
+            throw new RuntimeException("Could not store the image for generation {$generation->uuid}.");
+        }
 
         $generation->forceFill(['image_path' => $path])->save();
     }

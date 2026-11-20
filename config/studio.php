@@ -16,6 +16,7 @@ return [
 
     // Where finished images are copied, because Pixelforge's URLs expire after 24 hours.
     // Use an object storage disk (s3) in production: app servers' disks are not shared or kept.
-    'image_disk' => env('GENERATION_IMAGE_DISK', 'local'),
+    // Falls back to the default disk, which Laravel Cloud sets to the attached bucket.
+    'image_disk' => env('GENERATION_IMAGE_DISK', env('FILESYSTEM_DISK', 'local')),
 
 ];
